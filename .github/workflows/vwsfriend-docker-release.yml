@@ -1,52 +1,56 @@
-# This is a basic workflow to help you get started with Actions
+name: Build VWsFriend Docker Image
 
-name: grafana Build
-
-# Controls when the action will run. 
 on:
-  # Triggers the workflow on push or pull request events but only for the master branch
   push:
-    branches: [ main ]
     tags:
-     - "v*"
-    paths:
-     - .github/workflows/grafana-docker.yml
-     - grafana/**
+      - "v*"
 
-
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  vwsfriend-grafana:
+  vwsfriend-docker-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 300
     steps:
+      - name: Set Swap Space
+        uses: pierotofy/set-swap-space@v1.0
+        with:
+          swap-size-gb: 10
+      - run: |
+           # Workaround for https://github.com/rust-lang/cargo/issues/8719
+           sudo mkdir -p /var/lib/docker
+           sudo mount -t tmpfs -o size=10G none /var/lib/docker
+           sudo systemctl restart docker
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Version from input
+        if: github.event_name != 'push'
+        run: |
+          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+      - name: Version from pushed tag
+        if: github.event_name == 'push'
+        run: |
+          # from refs/tags/v1.2.3 get 1.2.3
+          echo "version=$(echo $GITHUB_REF | sed 's#.*/v##')" >> $GITHUB_ENV
+      - name: Autobump version
+        working-directory: vwsfriend
+        run: |
+          PLACEHOLDER="__version__ = '0.0.0dev'"
+          REPLACEMENT="__version__ = '${{ env.version }}'"
+          VERSION_FILE="vwsfriend/__version.py"
+          # ensure the placeholder is there. If grep doesn't find the placeholder
+          # it exits with exit code 1 and github actions aborts the build.
+          grep "$PLACEHOLDER" "$VERSION_FILE"
+          sed -i "s/$PLACEHOLDER/$REPLACEMENT/g" "$VERSION_FILE"
+          grep "$REPLACEMENT" "$VERSION_FILE"
+        shell: bash
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: |
-            ghcr.io/micxer/vwsfriend-grafana
+            ghcr.io/micxer/vwsfriend
           tags: |
-            type=edge,
+            type=raw,value=latest
             type=pep440,pattern={{version}}
-      - name: Version from pushed tag
-        if: startsWith( github.ref, 'refs/tags/v' )
-        run: |
-          # from refs/tags/v1.2.3 get 1.2.3
-          echo "version=$(echo $GITHUB_REF | sed 's#.*/v##')" >> $GITHUB_ENV
-      - name: Autobump version
-        if: startsWith( github.ref, 'refs/tags/v' )
-        working-directory: grafana
-        run: |
-          PLACEHOLDER="        \"content\": \"VWsFriend version: \[0.0.0dev\](https://github.com/micxer/VWsFriend/)\","
-          REPLACEMENT="        \"content\": \"VWsFriend version: \[${{ env.version }}\](https://github.com/micxer/VWsFriend/releases/tag/v${{ env.version }})\","
-          VERSION_FILE="dashboards/vwsfriend/VWsFriend/overview.json"
-          # ensure the placeholder is there. If grep doesn't find the placeholder
-          # it exits with exit code 1 and github actions aborts the build.
-          grep "$PLACEHOLDER" "$VERSION_FILE"
-          sed -i "s|$PLACEHOLDER|$REPLACEMENT|g" "$VERSION_FILE"
-          grep "$REPLACEMENT" "$VERSION_FILE"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Setup Docker Buildx
@@ -61,7 +65,9 @@ jobs:
         id: docker_build
         uses: docker/build-push-action@v6.7.0
         with:
-          context: grafana
+          context: vwsfriend
+          file: vwsfriend/Dockerfile-edge
+          allow: security.insecure
           push: ${{ github.event_name != 'pull_request' }}
           platforms: linux/amd64,linux/arm/v7,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
