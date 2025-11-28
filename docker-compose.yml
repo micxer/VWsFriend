@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   vwsfriend:
     image: ghcr.io/micxer/vwsfriend:${VWSFRIEND_VERSION-latest}
