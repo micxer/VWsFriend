@@ -22,9 +22,6 @@ RUN pip3 install --no-cache-dir wheel
 RUN pip3 install --no-cache-dir -r requirements.txt
 RUN pip3 install --no-cache-dir -r mqtt_extra_requirements.txt
 RUN pip3 install --no-cache-dir .
-# Apply weconnect fix for relative URL handling - fixes relative redirects in _get_login_form
-# NOTE: Must be AFTER vwsfriend install since that reinstalls weconnect from git
-RUN python3.12 fix_weconnect_auth.py && echo "✓ Auth fix applied successfully"
 
 
 FROM ubuntu:22.04 AS baserunner

@@ -1,4 +1,4 @@
-weconnect[Images]~=0.60.8
+weconnect[Images] @ git+https://github.com/tillsteinbach/WeConnect-python.git@v0.60.9a1
 HAP-python[QRCode]~=4.9.1
 pypng~=0.20220715.0
 sqlalchemy~=2.0.34
