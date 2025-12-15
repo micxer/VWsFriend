@@ -27,59 +27,103 @@ class ChargeAgent():
                                                    ).order_by(Charge.carCapturedTimestamp.desc()).first()
         self.chargingSession = None
         self.previousChargingSession = None
+        self.chargingStatusObserversRegistered = False
+        self.plugStatusObserversRegistered = False
 
         # register for updates:
         if self.vehicle.weConnectVehicle is not None:
-            if self.vehicle.weConnectVehicle.statusExists('charging', 'chargingStatus') \
-                    and self.vehicle.weConnectVehicle.domains['charging']['chargingStatus'].enabled:
-                self.vehicle.weConnectVehicle.domains['charging']['chargingStatus'].carCapturedTimestamp.addObserver(
-                    self.__onChargingStatusCarCapturedTimestampChange,
-                    AddressableLeaf.ObserverEvent.VALUE_CHANGED,
-                    onUpdateComplete=True)
-                self.__onChargingStatusCarCapturedTimestampChange(None, None)
+            self.__registerChargingStatusObservers()
+            self.__registerPlugStatusObservers()
 
-                self.vehicle.weConnectVehicle.domains['charging']['chargingStatus'].chargingState.addObserver(self.__onChargingStateChange,
-                                                                                                              AddressableLeaf.ObserverEvent.VALUE_CHANGED,
-                                                                                                              onUpdateComplete=True)
-                self.vehicle.weConnectVehicle.domains['charging']['chargingStatus'].chargePower_kW.addObserver(self.__onChargePowerChange,
-                                                                                                               AddressableLeaf.ObserverEvent.VALUE_CHANGED,
-                                                                                                               onUpdateComplete=True)
+            # If charging status is not available yet, register for later updates
+            if not self.chargingStatusObserversRegistered or not self.plugStatusObserversRegistered:
+                LOG.info(f'Vehicle {self.vehicle.vin} charging status not fully available yet, will register observers when data becomes available')
+                self.vehicle.weConnectVehicle.addObserver(self.__onLaterChargingEnabled,
+                                                          AddressableLeaf.ObserverEvent.UPDATED_FROM_SERVER,
+                                                          onUpdateComplete=True)
 
-                # If the vehicle is charging check if you can catch up an open charging session:
-                if self.vehicle.weConnectVehicle.domains['charging']['chargingStatus'].chargingState.enabled \
-                        and self.vehicle.weConnectVehicle.domains['charging']['chargingStatus'].chargingState.value in \
-                        (ChargingStatus.ChargingState.CHARGING,
-                         ChargingStatus.ChargingState.CONSERVATION,
-                         ChargingStatus.ChargingState.CHARGE_PURPOSE_REACHED_NOT_CONSERVATION_CHARGING,
-                         ChargingStatus.ChargingState.CHARGE_PURPOSE_REACHED_CONSERVATION,
-                         ChargingStatus.ChargingState.DISCHARGING):
-                    chargingSession = session.query(ChargingSession).filter(and_(ChargingSession.vehicle == vehicle, ChargingSession.started.isnot(None))
-                                                                            ).order_by(ChargingSession.started.desc()).first()
-                    if chargingSession is not None and not chargingSession.isClosed():
-                        self.chargingSession = chargingSession
-                        LOG.info('Vehicle is charging and an open charging session entry was found in the database. This session will be continued.')
-                    else:
-                        LOG.warning('Vehicle is charging but no open charging session entry was found in the database. This session cannot be recorded.')
+    def __registerChargingStatusObservers(self):
+        """Register observers for charging status, if not already registered and data is available."""
+        if self.chargingStatusObserversRegistered:
+            return
 
-            if self.vehicle.weConnectVehicle.statusExists('charging', 'plugStatus') \
-                    and self.vehicle.weConnectVehicle.domains['charging']['plugStatus'].enabled:
-                self.vehicle.weConnectVehicle.domains['charging']['plugStatus'].plugConnectionState.addObserver(self.__onPlugConnectionStateChange,
-                                                                                                                AddressableLeaf.ObserverEvent.VALUE_CHANGED,
-                                                                                                                onUpdateComplete=True)
-                self.vehicle.weConnectVehicle.domains['charging']['plugStatus'].plugLockState.addObserver(self.__onPlugLockStateChange,
+        if self.vehicle.weConnectVehicle.statusExists('charging', 'chargingStatus') \
+                and self.vehicle.weConnectVehicle.domains['charging']['chargingStatus'].enabled:
+            LOG.info(f'Vehicle {self.vehicle.vin} charging status is now available, registering observers')
+            self.vehicle.weConnectVehicle.domains['charging']['chargingStatus'].carCapturedTimestamp.addObserver(
+                self.__onChargingStatusCarCapturedTimestampChange,
+                AddressableLeaf.ObserverEvent.VALUE_CHANGED,
+                onUpdateComplete=True)
+            self.__onChargingStatusCarCapturedTimestampChange(None, None)
+
+            self.vehicle.weConnectVehicle.domains['charging']['chargingStatus'].chargingState.addObserver(self.__onChargingStateChange,
                                                                                                           AddressableLeaf.ObserverEvent.VALUE_CHANGED,
                                                                                                           onUpdateComplete=True)
+            self.vehicle.weConnectVehicle.domains['charging']['chargingStatus'].chargePower_kW.addObserver(self.__onChargePowerChange,
+                                                                                                           AddressableLeaf.ObserverEvent.VALUE_CHANGED,
+                                                                                                           onUpdateComplete=True)
 
-                # If the vehicle is still connected check if you can catch up an open charging session:
-                if self.chargingSession is None and self.vehicle.weConnectVehicle.domains['charging']['plugStatus'].plugConnectionState.value \
-                        == PlugStatus.PlugConnectionState.CONNECTED:
-                    chargingSession = session.query(ChargingSession).filter(and_(ChargingSession.vehicle == vehicle, ChargingSession.connected.isnot(None))
+            # If the vehicle is charging check if you can catch up an open charging session:
+            if self.vehicle.weConnectVehicle.domains['charging']['chargingStatus'].chargingState.enabled \
+                    and self.vehicle.weConnectVehicle.domains['charging']['chargingStatus'].chargingState.value in \
+                    (ChargingStatus.ChargingState.CHARGING,
+                     ChargingStatus.ChargingState.CONSERVATION,
+                     ChargingStatus.ChargingState.CHARGE_PURPOSE_REACHED_NOT_CONSERVATION_CHARGING,
+                     ChargingStatus.ChargingState.CHARGE_PURPOSE_REACHED_CONSERVATION,
+                     ChargingStatus.ChargingState.DISCHARGING):
+                chargingSession = self.session.query(ChargingSession).filter(and_(ChargingSession.vehicle == self.vehicle,
+                                                                                   ChargingSession.started.isnot(None))
+                                                                            ).order_by(ChargingSession.started.desc()).first()
+                if chargingSession is not None and not chargingSession.isClosed():
+                    self.chargingSession = chargingSession
+                    LOG.info('Vehicle is charging and an open charging session entry was found in the database. This session will be continued.')
+                else:
+                    LOG.warning('Vehicle is charging but no open charging session entry was found in the database. This session cannot be recorded.')
+
+            self.chargingStatusObserversRegistered = True
+
+    def __registerPlugStatusObservers(self):
+        """Register observers for plug status, if not already registered and data is available."""
+        if self.plugStatusObserversRegistered:
+            return
+
+        if self.vehicle.weConnectVehicle.statusExists('charging', 'plugStatus') \
+                and self.vehicle.weConnectVehicle.domains['charging']['plugStatus'].enabled:
+            LOG.info(f'Vehicle {self.vehicle.vin} plug status is now available, registering observers')
+            self.vehicle.weConnectVehicle.domains['charging']['plugStatus'].plugConnectionState.addObserver(self.__onPlugConnectionStateChange,
+                                                                                                            AddressableLeaf.ObserverEvent.VALUE_CHANGED,
+                                                                                                            onUpdateComplete=True)
+            self.vehicle.weConnectVehicle.domains['charging']['plugStatus'].plugLockState.addObserver(self.__onPlugLockStateChange,
+                                                                                                      AddressableLeaf.ObserverEvent.VALUE_CHANGED,
+                                                                                                      onUpdateComplete=True)
+
+            # If the vehicle is still connected check if you can catch up an open charging session:
+            if self.chargingSession is None and self.vehicle.weConnectVehicle.domains['charging']['plugStatus'].plugConnectionState.value \
+                    == PlugStatus.PlugConnectionState.CONNECTED:
+                chargingSession = self.session.query(ChargingSession).filter(and_(ChargingSession.vehicle == self.vehicle,
+                                                                                   ChargingSession.connected.isnot(None))
                                                                             ).order_by(ChargingSession.connected.desc()).first()
-                    if chargingSession is not None and not chargingSession.wasDisconnected():
-                        self.chargingSession = chargingSession
-                        LOG.info('Vehicle is still connected and an open charging session entry was found in the database. This session will be continued.')
-                    else:
-                        LOG.warning('Vehicle still connected but no open charging session entry was found in the database. This session cannot be recorded.')
+                if chargingSession is not None and not chargingSession.wasDisconnected():
+                    self.chargingSession = chargingSession
+                    LOG.info('Vehicle is still connected and an open charging session entry was found in the database. This session will be continued.')
+                else:
+                    LOG.warning('Vehicle still connected but no open charging session entry was found in the database. This session cannot be recorded.')
+
+            self.plugStatusObserversRegistered = True
+
+    def __onLaterChargingEnabled(self, element, flags):
+        """Callback invoked when vehicle data is updated from server, to check if charging status becomes available."""
+        # Try to register observers if not yet registered
+        if not self.chargingStatusObserversRegistered:
+            self.__registerChargingStatusObservers()
+
+        if not self.plugStatusObserversRegistered:
+            self.__registerPlugStatusObservers()
+
+        # If both are now registered, remove this observer
+        if self.chargingStatusObserversRegistered and self.plugStatusObserversRegistered:
+            LOG.info(f'Vehicle {self.vehicle.vin} charging observers are now fully registered, removing deferred registration observer')
+            self.vehicle.weConnectVehicle.removeObserver(self.__onLaterChargingEnabled, AddressableLeaf.ObserverEvent.UPDATED_FROM_SERVER)
 
     def __onChargingStatusCarCapturedTimestampChange(self, element, flags):  # noqa: C901
         if element is not None and element.value is not None:
