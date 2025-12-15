@@ -72,8 +72,8 @@ class ChargeAgent():
                      ChargingStatus.ChargingState.CHARGE_PURPOSE_REACHED_CONSERVATION,
                      ChargingStatus.ChargingState.DISCHARGING):
                 chargingSession = self.session.query(ChargingSession).filter(and_(ChargingSession.vehicle == self.vehicle,
-                                                                                   ChargingSession.started.isnot(None))
-                                                                            ).order_by(ChargingSession.started.desc()).first()
+                                                                                  ChargingSession.started.isnot(None))
+                                                                             ).order_by(ChargingSession.started.desc()).first()
                 if chargingSession is not None and not chargingSession.isClosed():
                     self.chargingSession = chargingSession
                     LOG.info('Vehicle is charging and an open charging session entry was found in the database. This session will be continued.')
@@ -101,8 +101,8 @@ class ChargeAgent():
             if self.chargingSession is None and self.vehicle.weConnectVehicle.domains['charging']['plugStatus'].plugConnectionState.value \
                     == PlugStatus.PlugConnectionState.CONNECTED:
                 chargingSession = self.session.query(ChargingSession).filter(and_(ChargingSession.vehicle == self.vehicle,
-                                                                                   ChargingSession.connected.isnot(None))
-                                                                            ).order_by(ChargingSession.connected.desc()).first()
+                                                                                  ChargingSession.connected.isnot(None))
+                                                                             ).order_by(ChargingSession.connected.desc()).first()
                 if chargingSession is not None and not chargingSession.wasDisconnected():
                     self.chargingSession = chargingSession
                     LOG.info('Vehicle is still connected and an open charging session entry was found in the database. This session will be continued.')

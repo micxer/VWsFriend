@@ -4,15 +4,15 @@ These tests focus on verifying the adaptive registration logic by using
 an in-memory SQLite database to avoid complex SQLAlchemy mocking issues.
 """
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+from weconnect.addressable import AddressableLeaf
 
 from vwsfriend.model.base import Base
 from vwsfriend.model.vehicle import Vehicle
 from vwsfriend.agents.charge_agent import ChargeAgent
-from vwsfriend.privacy import Privacy
-from weconnect.addressable import AddressableLeaf
 
 
 class TestChargeAgentAdaptiveRegistration(unittest.TestCase):
@@ -110,7 +110,8 @@ class TestChargeAgentAdaptiveRegistration(unittest.TestCase):
         # Verify deferred observer was removed
         mock_weconnect_vehicle.removeObserver.assert_called_once()
 
-    def _create_mock_vehicle(self, charging_status_enabled=True, plug_status_enabled=True):
+    @staticmethod
+    def _create_mock_vehicle(charging_status_enabled=True, plug_status_enabled=True):
         """Create a mock WeConnect vehicle."""
         mock_vehicle = Mock()
         mock_vehicle.statusExists.return_value = True
@@ -146,7 +147,8 @@ class TestChargeAgentAdaptiveRegistration(unittest.TestCase):
 
         return mock_vehicle
 
-    def _enable_status(self, mock_vehicle):
+    @staticmethod
+    def _enable_status(mock_vehicle):
         """Enable charging and plug status on a mock vehicle."""
         mock_vehicle.domains['charging']['chargingStatus'].enabled = True
         mock_vehicle.domains['charging']['plugStatus'].enabled = True
