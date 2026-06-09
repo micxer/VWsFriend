@@ -1,0 +1,66 @@
+# syntax = docker/dockerfile:experimental
+# Fork-only Dockerfile: builds vwsfriend from the local source tree instead of
+# from PyPI, so the patched weconnect dependency pinned in requirements.txt
+# (git+https fork ref) is honored. Kept separate from the upstream Dockerfile
+# to avoid merge conflicts when syncing with upstream.
+
+# Here is the build image
+FROM ubuntu:22.04 as basebuilder
+
+ARG DEBIAN_FRONTEND="noninteractive"
+ENV TZ="Etc/UTC"
+
+# git is required to install the weconnect fork via its git+https requirement
+RUN apt-get update && apt-get install --no-install-recommends -y pkg-config gpg gpg-agent software-properties-common && add-apt-repository ppa:deadsnakes/ppa && apt-get update && \
+    apt-get install --no-install-recommends -y python3.12 python3.12-dev python3.12-venv python3-pip python3-wheel build-essential git && \
+    apt-get install --no-install-recommends -y libpq-dev libffi-dev libssl-dev rustc cargo libjpeg-dev zlib1g-dev && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+FROM basebuilder as builder
+
+RUN python3.12 -m venv /opt/venv
+# Make sure we use the virtualenv:
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip3 install --no-cache-dir wheel
+# This line is a workaround necessary for linux/arm/v7 architecture that has a bug with qemu: https://github.com/rust-lang/cargo/issues/8719
+# RUN --security=insecure mkdir -p /root/.cargo/registry/index && chmod 777 /root/.cargo/registry/index && mount -t tmpfs none /root/.cargo/registry/index && pip3 install --no-cache-dir cryptography
+
+# Install from the local source tree (build context) instead of PyPI
+COPY . /src
+RUN pip3 install --no-cache-dir /src[MQTT]
+
+
+FROM ubuntu:22.04 AS baserunner
+
+ARG DEBIAN_FRONTEND="noninteractive"
+
+RUN apt-get update && apt-get install --no-install-recommends -y gpg gpg-agent software-properties-common && add-apt-repository ppa:deadsnakes/ppa && apt-get update && \
+    apt-get install --no-install-recommends -y python3.12 python3.12-venv wget && \
+    apt-get install --no-install-recommends -y libpq5 libjpeg8 zlib1g postgresql-client && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+FROM baserunner AS runner-image
+
+ARG DEBIAN_FRONTEND="noninteractive"
+
+ENV VWSFRIEND_USERNAME=
+ENV VWSFRIEND_PASSWORD=
+ENV VWSFRIEND_PORT=4000
+ENV WECONNECT_USER=
+ENV WECONNECT_PASSWORD=
+ENV WECONNECT_SPIN=
+ENV WECONNECT_INTERVAL=300
+ENV ADDITIONAL_PARAMETERS=
+ENV DATABASE_URL=
+
+COPY --from=builder /opt/venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN mkdir -p /config
+
+# make sure all messages always reach console
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 4000
+
+CMD vwsfriend --username=${VWSFRIEND_USERNAME} --password=${VWSFRIEND_PASSWORD} --weconnect-username=${WECONNECT_USER} --weconnect-password=${WECONNECT_PASSWORD} --weconnect-spin=${WECONNECT_SPIN} --interval=${WECONNECT_INTERVAL} --port=${VWSFRIEND_PORT} --database-url=${DATABASE_URL} --config-dir=/config ${ADDITIONAL_PARAMETERS}
