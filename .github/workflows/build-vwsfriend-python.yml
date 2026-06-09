@@ -29,6 +29,10 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Install system build dependencies
+      # Pillow has no prebuilt wheel for newer Python versions yet and is then
+      # compiled from source, which requires the jpeg and zlib headers.
+      run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libjpeg-dev zlib1g-dev
     - name: Install dependencies
       working-directory: vwsfriend
       run: |
