@@ -40,8 +40,15 @@ jobs:
       - name: Version from pushed tag
         if: github.event_name == 'push'
         run: |
-          # from refs/tags/v1.2.3 get 1.2.3
+          # from refs/tags/v1.2.3+micxer get 1.2.3+micxer
           echo "version=$(echo $GITHUB_REF | sed 's#.*/v##')" >> $GITHUB_ENV
+      - name: Docker-safe version
+        run: |
+          # Docker tags may not contain '+', which the SemVer build metadata
+          # (e.g. 0.24.12+micxer) uses to mark these as custom fork builds.
+          # Replace it with '-' for the image tag while keeping the full
+          # version (with '+micxer') in the Python package version.
+          echo "dockerVersion=${version/+/-}" >> $GITHUB_ENV
       - name: Checkout
         uses: actions/checkout@v4
       - name: Autobump version
@@ -64,7 +71,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/vwsfriend
           tags: |
             type=raw,value=edge
-            type=pep440,pattern={{version}},value=${{ env.version }}
+            type=raw,value=${{ env.dockerVersion }}
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Setup Docker Buildx
