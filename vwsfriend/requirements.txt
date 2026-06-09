@@ -1,4 +1,4 @@
-weconnect[Images]~=0.60.10
+weconnect[Images] @ git+https://github.com/micxer/WeConnect-python.git@v0.60.11-auth
 HAP-python[QRCode]~=4.9.1
 pypng~=0.20220715.0
 sqlalchemy~=2.0.34
