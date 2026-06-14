@@ -50,6 +50,7 @@ ENV WECONNECT_USER=
 ENV WECONNECT_PASSWORD=
 ENV WECONNECT_SPIN=
 ENV WECONNECT_INTERVAL=300
+ENV EU_DATA_ACT_BRAND=volkswagen
 ENV ADDITIONAL_PARAMETERS=
 ENV DATABASE_URL=
 
@@ -63,4 +64,4 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 4000
 
-CMD vwsfriend --username=${VWSFRIEND_USERNAME} --password=${VWSFRIEND_PASSWORD} --weconnect-username=${WECONNECT_USER} --weconnect-password=${WECONNECT_PASSWORD} --weconnect-spin=${WECONNECT_SPIN} --interval=${WECONNECT_INTERVAL} --port=${VWSFRIEND_PORT} --database-url=${DATABASE_URL} --config-dir=/config ${ADDITIONAL_PARAMETERS}
+CMD vwsfriend --username=${VWSFRIEND_USERNAME} --password=${VWSFRIEND_PASSWORD} --weconnect-username=${WECONNECT_USER} --weconnect-password=${WECONNECT_PASSWORD} --weconnect-spin=${WECONNECT_SPIN} --interval=${WECONNECT_INTERVAL} --port=${VWSFRIEND_PORT} --database-url=${DATABASE_URL} --config-dir=/config --eu-data-act-brand=${EU_DATA_ACT_BRAND} ${ADDITIONAL_PARAMETERS}

@@ -22,6 +22,7 @@ from vwsfriend.agents.weconnect_error_agent import WeconnectErrorAgent
 from vwsfriend.agents.warning_light_agent import WarningLightAgent
 from vwsfriend.agents.maintenance_agent import MaintenanceAgent
 from vwsfriend.agents.abrp.abrp_agent import ABRPAgent
+from vwsfriend.agents.eu_data_act.connector import EUDataActConnector
 from vwsfriend.model.base import Base
 from vwsfriend.model import Vehicle
 
@@ -31,8 +32,10 @@ LOG = logging.getLogger("VWsFriend")
 
 
 class AgentConnector():
-    def __init__(self, weConnect, dbUrl, interval, withDB=False, withABRP=False, configDir='./', privacy=None):  # noqa: C901
+    def __init__(self, weConnect, dbUrl, interval, withDB=False, withABRP=False,  # noqa: C901  # pylint: disable=too-many-arguments
+                 configDir='./', privacy=None, euDataActUsername=None, euDataActPassword=None, euDataActBrand='volkswagen'):
         self.agents = {}
+        self.euDataActConnector = None
 
         if withDB:
             if os.path.isfile(configDir + '/provisioning/database.vwsfrienddbbackup'):
@@ -88,6 +91,15 @@ class AgentConnector():
 
         weConnect.addObserver(self.onEnable, AddressableLeaf.ObserverEvent.ENABLED, onUpdateComplete=True)
 
+        if self.withDB and euDataActUsername and euDataActPassword:
+            LOG.info('EU Data Act connector enabled for user %s brand %s', euDataActUsername, euDataActBrand)
+            self.euDataActConnector = EUDataActConnector(
+                session_factory=self.Session,
+                username=euDataActUsername,
+                password=euDataActPassword,
+                brand=euDataActBrand,
+            )
+
         self.agents["none"] = []
         if self.withDB:
             self.agents["none"].append(WeconnectErrorAgent(session=self.Session(), weconnect=weConnect))
@@ -126,6 +138,11 @@ class AgentConnector():
                                 foundVehicle.vin)
             if self.withABRP:
                 self.agents[element.vin.value].append(ABRPAgent(weConnectVehicle=element, tokenfile=f'{self.configDir}/{element.vin.value}-ABRP.token'))
+
+    def updateEUDataAct(self):
+        """Poll the EU Data Act portal and persist new data. Call from the main loop."""
+        if self.euDataActConnector is not None:
+            self.euDataActConnector.update()
 
     def commit(self):
         for vehicleAgents in self.agents.values():

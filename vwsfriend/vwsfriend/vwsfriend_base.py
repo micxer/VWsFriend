@@ -106,6 +106,10 @@ def main():  # noqa: C901 pylint: disable=too-many-branches, too-many-statements
     parser.add_argument('--demo', help='folder containing demo scenario, see README for more information')
     parser.add_argument('--privacy', help='Options to control privacy of the cars users', default=[], required=False, action='append',
                         type=Privacy, choices=list(Privacy))
+    euDataActGroup = parser.add_argument_group('EU Data Act (VW group data portal)')
+    euDataActGroup.add_argument('--eu-data-act-brand', dest='euDataActBrand',
+                                help='VW group brand for EU Data Act portal (volkswagen/audi/skoda/seat/cupra)', required=False, default='volkswagen')
+
     dbGroup = parser.add_argument_group('Database & visualization')
 
     dbGroup.add_argument('--with-database', dest='withDatabase', help='Connect VWsFriend to database for visualization', action='store_true')
@@ -270,6 +274,9 @@ def main():  # noqa: C901 pylint: disable=too-many-branches, too-many-statements
     if args.weConnectUsername is not None and args.weConnectPassword is not None:
         weConnectUsername = args.weConnectUsername
         weConnectPassword = args.weConnectPassword
+    elif os.environ.get('WECONNECT_USER') and os.environ.get('WECONNECT_PASSWORD'):
+        weConnectUsername = os.environ['WECONNECT_USER']
+        weConnectPassword = os.environ['WECONNECT_PASSWORD']
     else:
         if args.netrc is not None:
             netRcFilename = args.netrc
@@ -326,12 +333,21 @@ def main():  # noqa: C901 pylint: disable=too-many-branches, too-many-statements
     weConnect = None
     mqttCLient = None
     try:  # pylint: disable=too-many-nested-blocks
-        weConnect = weconnect.WeConnect(username=weConnectUsername, password=weConnectPassword, spin=weConnectSpin, tokenfile=tokenfile,
-                                        updateAfterLogin=False, loginOnInit=(args.demo is None), maxAgePictures=86400, forceReloginAfter=21600, numRetries=5,
-                                        timeout=180)
+        try:
+            weConnect = weconnect.WeConnect(username=weConnectUsername, password=weConnectPassword, spin=weConnectSpin,
+                                            tokenfile=tokenfile, updateAfterLogin=False, loginOnInit=(args.demo is None),
+                                            maxAgePictures=86400, forceReloginAfter=21600, numRetries=5, timeout=180)
+        except (AuthentificationError, APICompatibilityError) as e:
+            LOG.warning('WeConnect login failed (%s). Continuing without WeConnect — EU Data Act connector will still run.', e)
+            weConnect = weconnect.WeConnect(username=weConnectUsername, password=weConnectPassword, spin=weConnectSpin, tokenfile=tokenfile,
+                                            updateAfterLogin=False, loginOnInit=False, maxAgePictures=86400, forceReloginAfter=21600, numRetries=5,
+                                            timeout=180)
 
         connector = AgentConnector(weConnect=weConnect, dbUrl=args.dbUrl, interval=args.interval, withDB=args.withDatabase, withABRP=args.withABRP,
-                                   configDir=args.configDir, privacy=args.privacy)
+                                   configDir=args.configDir, privacy=args.privacy,
+                                   euDataActUsername=weConnectUsername,
+                                   euDataActPassword=weConnectPassword,
+                                   euDataActBrand=getattr(args, 'euDataActBrand', 'volkswagen'))
 
         driver = None
         if args.withHomekit:
@@ -538,6 +554,7 @@ def main():  # noqa: C901 pylint: disable=too-many-branches, too-many-statements
                                                                                                               Domain.BATTERY_SUPPORT,
                                                                                                               Domain.PARKING])
                     connector.commit()
+                    connector.updateEUDataAct()
                     if args.withHomekit and not weConnectBridgeInitialized:
                         weConnectBridgeInitialized = True
                         bridge.update()
@@ -557,12 +574,14 @@ def main():  # noqa: C901 pylint: disable=too-many-branches, too-many-statements
                     else:
                         LOG.warning('Retrieval error during update. Will try again after configured interval of %ds', args.interval)
                     subsequentErrors += 1
+                    connector.updateEUDataAct()
                 except TemporaryAuthentificationError:
                     if subsequentErrors > 0:
                         LOG.error('Temporary error during reauthentification. Will try again after configured interval of %ds', args.interval)
                     else:
                         LOG.warning('Temporary error during reauthentification. Will try again after configured interval of %ds', args.interval)
                     subsequentErrors += 1
+                    connector.updateEUDataAct()
                 except APICompatibilityError as e:
                     sleeptime = min((args.interval * pow(2, permanentErrors)), 86400)
                     if subsequentErrors > 0:
@@ -573,8 +592,16 @@ def main():  # noqa: C901 pylint: disable=too-many-branches, too-many-statements
                                     ' will retry after %ds', e, sleeptime)
                     subsequentErrors += 1
                     permanentErrors += 1
+                    connector.updateEUDataAct()
                 #  Execute exactly every interval but if it misses its deadline only after the next interval
-                time.sleep(sleeptime)
+                # During long WeConnect backoffs, keep polling EU Data Act every interval
+                remaining = sleeptime
+                while remaining > 0:
+                    chunk = min(remaining, args.interval)
+                    time.sleep(chunk)
+                    remaining -= chunk
+                    if remaining > 0:
+                        connector.updateEUDataAct()
 
     except AuthentificationError as e:
         LOG.critical('There was a problem when authenticating with WeConnect: %s', e)
